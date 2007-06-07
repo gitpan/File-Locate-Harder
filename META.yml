@@ -1,0 +1,18 @@
+# http://module-build.sourceforge.net/META-spec.html
+#XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
+name:         File-Locate-Harder
+version:      0.01
+version_from: lib/File/Locate/Harder.pm
+installdirs:  site
+requires:
+    Carp:                          0
+    Class::Base:                   0.03
+    Data::Dumper:                  0
+    File::Locate:                  0.62
+    FindBin:                       0
+    Hash::Util:                    0
+    Symbol:                        0
+    Test::Trap:                    v0.0.22
+
+distribution_type: module
+generated_by: ExtUtils::MakeMaker version 6.17

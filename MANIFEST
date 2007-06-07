@@ -1,0 +1,27 @@
+Changes
+Makefile.PL
+MANIFEST
+README
+t/00-File-Locate-Harder.t
+lib/File/Locate/Harder.pm
+t/dat/tree/Ubud/review.txt
+t/dat/tree/Ubud/description.txt
+t/dat/tree/Barcelona/review.txt
+t/dat/tree/Barcelona/description.txt
+t/dat/tree/SanFrancisco/review.txt
+t/dat/tree/SanFrancisco/description.txt
+t/dat/tree/NewYork/review.txt
+t/dat/tree/NewYork/description.txt
+t/dat/tree/Trantor/review.txt
+t/dat/tree/Trantor/description.txt
+t/dat/easy_hits/tree/bin/text.txt
+t/dat/easy_hits/tree/htm/text.txt
+t/dat/easy_hits/tree/the/text.txt
+t/dat/easy_hits/tree/tmp/text.txt
+t/dat/easy_hits/tree/txt/text.txt
+t/dat/easy_hits/tree/home/text.txt
+t/dat/easy_hits/tree/README/text.txt
+t/dat/easy_hits/tree/DynaLoader/text.txt
+t/dat/easy_hits/tree/SelfStubber/text.txt
+t/dat/easy_hits/tree/MakeMaker/text.txt
+META.yml                                 Module meta-data (added by MakeMaker)
