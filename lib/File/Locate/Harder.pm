@@ -96,7 +96,7 @@ use Hash::Util qw( lock_keys unlock_keys );
 # use File::Locate ();
 #   note: this is now 'require'ed during init instead
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 # for autoload generated accessors
 our $AUTOLOAD;
