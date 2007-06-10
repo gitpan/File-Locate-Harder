@@ -3,7 +3,7 @@ use base qw( Class::Base );
 
 =head1 NAME
 
-File::Locate::Harder - for when you're determined to use a locate db
+File::Locate::Harder - when you're determined to use a locate db
 
 =head1 SYNOPSIS
 
@@ -11,7 +11,6 @@ File::Locate::Harder - for when you're determined to use a locate db
 
    my $flh = File::Locate::Harder->new();
    my $results_aref = $flh->locate( $search_term );
-
 
    # using a defined db location, plus some locate options
    my $flh = File::Locate::Harder->new( db => $db_file );
@@ -24,15 +23,15 @@ File::Locate::Harder - for when you're determined to use a locate db
    use Test::More;
    SKIP:
     {
-      my $flh = File::Locate::Harder->new( db => $db_file );
-      $flh->create_database( $path_to_tree_to_index );
+      my $flh = File::Locate::Harder->new( db => undef );
+      $flh->create_database( $path_to_tree_to_index, $db_file );
 
       if( $flh->check_locate ) {
          my $reason = "Can't get File::Locate::Harder to work";
          skip "Can't run 'locate'", $test_count;
       }
       my $results_aref = $flh->locate( $search_term );
-      is_deeply( $results_aref, $expected_aref, "Created expected files");
+      is_deeply( $results_aref, $expected_aref, "Found expected files");
     }
 
    # introspection (is it reading db directly, or shelling out to locate?)
@@ -61,8 +60,8 @@ Behind the scenes, File::Locate::Harder silently tries many ways
 of doing the requested "locate" operation.  If it can't establish
 contact with the file system's locate database, it will error
 out, otherwise you can be reasonably sure that a "locate" will
-return a valid result (including an empty set if the search turns
-up empty).
+return a valid result (including an empty set if the search matches
+nothing).
 
 If possible, File::Locate::Harder will use the perl/XS module
 L<File::Locate> to access the locate db directly, otherwise, it
@@ -70,9 +69,11 @@ will attempt to shell out to a command line version of "locate".
 
 If not told explicitly what locate db file to use, this module will
 try to find the file system's standard locate db using a number of
-reasonable guesses.  If those all fail, as a last ditch effort, it
-will try shelling out to the command line "locate" without
-specifying a db for it (because it usually knows where to look).
+reasonable guesses.  If those all fail -- and it's possible for it to
+fail simply because file permissions make the db file effectively
+invisible -- as a last ditch effort, it will try shelling out to the
+command line "locate" without specifying a db for it (because it
+usually knows where to look).
 
 Efficiency may be improved in some circumstances if you help
 File::Locate::Harder find the locate database, either by explicitly
@@ -93,10 +94,10 @@ use Carp;
 use Data::Dumper;
 use Hash::Util qw( lock_keys unlock_keys );
 
-# use File::Locate ();
-#   note: this is now 'require'ed during init instead
+# Note: this is now 'require'ed during init instead
+#   use File::Locate ();
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 # for autoload generated accessors
 our $AUTOLOAD;
@@ -106,7 +107,7 @@ my %ATTRIBUTES = ();
 
 Creates a new File::Locate::Harder object.
 
-With no arguments, the newly created object (mostly) has
+With no arguments, the newly created object (largely) has
 attributes that are undefined.  All may be set later using
 accessors named according to the "set_*" convention.
 
@@ -141,9 +142,10 @@ The search term is a regexp with the standard POSIX extensions.
 
 =item db
 
-Locate database file, with full path.  Use this to work with
-a non-standard location (e.g. to generate your own db via
-"create_database").
+Locate database file, with full path.  Use this to work with a
+non-standard location, or set it to "undef" if you don't want this
+module to waste time looking for it (e.g. you might be planning to
+generate your own db via L</create_database>).
 
 =back
 
@@ -159,11 +161,11 @@ purposes.
 
 =item locate_db_location_candidates
 
-Likely places for a locate db.
+Likely places for a locate db.  See L</define_probe_parameters>.
 
 =item test_search_terms
 
-Common terms on perl/unix systems
+Common terms in unix file paths. See L</define_probe_parameters>.
 
 =back
 
@@ -242,74 +244,51 @@ sub init {
   }
   # (all accessors are now fair game to use here)
 
-  # common strings in file paths on perl/unix systems,
-  # in roughly increasing likelihood of size of search result
-  my @test_search_terms =
-    qw(
-        MakeMaker
-        SelfStubber
-        DynaLoader
-        README
-        tmp
-        bin
-        the
-        htm
-        txt
-        home
-     );
-  $self->set_test_search_terms( \@test_search_terms );
+  $self->define_probe_parameters;
+     # that is, the test_search_terms and locate_db_location_candidates
 
-  # some places one might look for the system's
-  # locate db, in roughly increasing order of likelihood
-  my @candidates =
-    qw(
-        /var/lib/slocate/slocate.db
-        /var/cache/locate/locatedb
-        /var/db/locate.database
-        /usr/var/locatedb
-        /var/lib/locatedb
-        /usr/local/var/locatedb
-        /var/lib/locate/locatedb
-        /var/spool/locate/locatedb
-
-        /var/cache/locate/slocate.db
-        /var/db/slocate.db
-        /usr/var/slocate.db
-        /usr/local/var/slocate.db
-        /var/lib/locate/slocate.db
-        /var/spool/locate/slocate.db
-
-        /var/lib/slocate/locate.database
-        /var/cache/locate/locate.database
-        /usr/var/locate.database
-        /usr/local/var/locate.database
-        /var/lib/locate/locate.database
-        /var/spool/locate/locate.database
-
-        /var/lib/slocate/locatedb
-        /var/db/locatedb
-     );
-  $self->set_locate_db_location_candidates( \@candidates );
-
-  # Try to load module "File::Locate"
+  # Try to load module "File::Locate", if it fails we'll try shell locate
   eval "require File::Locate;";
   if ($@) {
     $self->set_use_shell_locate( 1 );
   }
 
-  my $db;
-  if ( $db = $args->{ db } ) {
-    $self->set_db( $db );
-  } elsif ( $db = $ENV{ LOCATE_PATH } ) {
-    $self->set_db( $db );
-  } elsif ( $db = $self->db ) {
-      # Note: indirectly initiates determine_system_db
-  } elsif( $self->probe_db_via_shell_locate ) { # db = undef
-    $self->set_use_shell_locate( 1 );
-  } else {
-    croak "File::Locate::Harder is not useable." .
-          "Problem with 'locate' installation?";
+  my $probe_db = 1;
+  # check for defined db field, but undef value
+  if ( grep{ m/^db$/ } (keys %{ $args } )  ||
+       ( not( defined( $args->{db} ) ) ) ) {
+    # if found we should *not* probe for a file-system db
+    $probe_db = 0;
   }
+
+  # two issues: determining which db to use
+  # and how to use it db (i.e. via module or shell)
+  my $db;
+  if ( $probe_db ) {
+    if ( $db = $args->{ db } || $ENV{ LOCATE_PATH } ) {
+      $self->set_db( $db );
+
+      # even if we're told which db to use, must still determine how
+      # But: we can't probe it if it's not created yet,
+      # And: there's no point if we already know we're going via shell
+      if ( -e $db  &&
+           ( not ( $self->use_shell_locate ) ) ) {
+
+        # will we use db fast way (module) or slow but sure (shell)
+        $self->probe_db( $db ); # note: sets use_shell_locate
+          # TODO check return for failure?
+
+      }
+    } elsif ( $db = $self->determine_system_db( ) ) {
+      # using the standard file system locate db
+    } elsif ( $self->probe_db_via_shell_locate ) {
+             # the db is unknown to us, but locate may still know
+      $self->set_use_shell_locate( 1 );
+    } else {
+      croak "File::Locate::Harder is not working. " .
+        "Problem with 'locate' installation?";
+    }
+  } # end if don't probe db
 
   lock_keys( %{ $self } );
   return $self;
@@ -335,24 +314,53 @@ An array reference of matching files with full paths.
 sub locate {
   my $self = shift;
   my $search_term = shift;
+  my $locate_options = shift;
 
+  # apply the current locate options but preserve object settings
+  my $original_settings = {
+        case_insensitive => $self->case_insensitive,
+        regexp           => $self->regexp,
+        posix_extended   => $self->posix_extended,
+     };
+
+  foreach my $field (keys (%{ $locate_options })){
+    my $setter = "set_$field";
+    $self->$setter( $locate_options->{ $field } );
+  }
+
+  # farm out the locate operation to "via_shell" or "via_module"
   my $result = [];
   if ( $self->use_shell_locate ) {
     $result = $self->locate_via_shell(  $search_term );
   } else {
     $result = $self->locate_via_module( $search_term );
   }
+
+  # restore the original object settings of locate options
+  foreach my $field (keys (%{ $original_settings })){
+    my $setter = "set_$field";
+    $self->$setter( $original_settings->{ $field } );
+  }
+
   return $result;
 }
 
 =item create_database
 
 Tries to create the locate database file indicated in the object
-data, indexing the tree indicated by a path given as an argument.
-An optional second argument allows specifying a db file to overide
-the object's setting.
+data, indexing the tree indicated by a path given as an argument.  A
+required second argument specifys the db file: the "db" field in the
+object is ignored by this method, though if the database is
+successfully created, the object's "db" field will be set to the
+newly created database.
 
-Returns false (0) on failure.
+Inputs:
+
+(1) full path of tree of files to index
+(2) full path of db file to create
+
+Return:
+false (undef) on failure.
 
 =cut
 
@@ -360,13 +368,13 @@ sub create_database {
   my $self = shift;
   my $location = shift;
 
-  my $db  = shift || $self->db;
+  my $db  = shift;
 
   my @cmd = ( "slocate -U $location -o $db",
               "updatedb --output=$db --localpaths='$location'",
             );
 
-  my $status = 0;
+  my $status = undef;
   TRY_AGAIN:
   foreach my $cmd (@cmd) {
     $self->debug("Trying cmd:\n$cmd\n");
@@ -404,17 +412,52 @@ sub create_database {
 
 Returns true (1) if this module's 'locate' method is capable of working.
 
+This is very similar to the L</probe_db> method, except that with no
+arguments *and* an undefined object's db setting, this will
+initiate a L</determine_system_db> run to try to find the standard
+system locate db.
+
+Example usage:
+
+  my $flh = File::Locate::Harder->new( { db => undef } );
+  $flh->create_database( $tree_location, $db_file );
+  if ( $flh->probe_db ) {
+    my @files = $flh->locate( "want_this" ); # checks the newly created db,
+                                             # just indexing $tree_location
+    # ...
+  }
+
+  # Then later, if you want to search the whole file system...
+  $flh->set_db( undef );
+  if ( $flh->check_locate ) {
+      my @hits = $flh->locate( "search_for_this" );
+      * ...
+  }
+
+  # But even more convenient would be:
+  if ( $flh->determine_system_db ) {
+      my @hits = $flh->locate( "search_for_this" );
+      * ...
+  }
+
+(Thus I suspect that this is a redundant, useless method.)
+
+Rule of thumb: if you want to search the whole system, you can use check_locate
+to verify that L</locate> will (most likely) work, but if you're using your own
+custom db (e.g. created via L</create_database>), you might as well just use
+</probe_db>.
+
+(Another rule of thumb: if this seems confusing, just ignore the issue
+for as long as you can.)
+
 =cut
 
 sub check_locate {
   my $self = shift;
 
-  if ( ( $self->determine_system_db ) ||
-       ( $self->probe_db_via_shell_locate  ) ) {
-    return 1;
-  } else {
-    return 0;
-  }
+  my $db = shift || $self->db || $self->determine_system_db;
+  my $ret = $self->probe_db( $db );
+  return $ret;
 }
 
 =item how_works
@@ -427,11 +470,11 @@ and using which db).
 
 sub how_works {
   my $self = shift;
-  my $db = $self->db;
+  my $db = $self->db | 'unknown';
   my $report = '';
   if ( $self->use_shell_locate ) {
-    my $version = $self->shell_locate_version;
-    $report = "We shell out to:\n$version\n with the locate db: $db\n";
+    my $version = $self->shell_locate_version || '';
+    $report = "We shell out to locate version: $version\n using the locate db: $db\n";
   } else {
     $report = "Using File::Locate with the locate db: $db\n";
   }
@@ -475,36 +518,36 @@ Tries to determine the version of the shell's "locate" command.
 This will work only with the GNU locate and Secure Locate
 variants, not the Free BSD.
 
-Returns the version string on success, otherwise 0.
+Returns the version string on success, otherwise 0 for failure.
 
 =cut
 
 sub shell_locate_version {
   my $self = shift;
-  my $ret;
 
-  my @cmd = ( "locate --version",  # gnu & slocate
-              "locate -V",         # slocate
+  my @cmd = ( 'locate --version',  # gnu & slocate
+              'locate -V',         # slocate
             );                     # note: freebsd has no version option
 
-  TRY_AGAIN:
+  my $ret = 0;
+  CMD:
   foreach my $cmd (@cmd) {
     $self->debug("Trying cmd:\n$cmd\n");
-    my $ret;
     chomp(
-          $ret = qx{ "$cmd 2>/dev/null" }
+          $ret = `$cmd`
          );
-    if ( $ret != 0  ) {
+    if ($ret) {
+      last CMD;
+    } else {
       $self->debug( "Failed locate version request of form:\n  $cmd\n" );
       $self->debug( "\$\?: $?\n" ) if $?;
-      next TRY_AGAIN;
+      next CMD;
     }
   }
 
   if ( not( $ret ) ) {
     carp "Could not get version of locate shell command";
   }
-
   return $ret;
 }
 
@@ -598,13 +641,16 @@ sub locate_via_shell {
 
 =item determine_system_db
 
-Internally used routine (called only by the </"db">
-accessor): looks for a useable system-wide locate db.
+Internally used routine: looks for a useable system-wide locate db.
+
+Returns the path to the db if found, and as a side effect sets the
+object attribute "db".
 
 =cut
 
-# Note: This is called only from the the db accessor.
-# Setting the db to some value effectively prevents this from being called.
+# Note: for efficiency reasons, this trys to access all
+# candidates via module before falling back on via shell. That's
+# the reason this routine does not use the probe_db method
 
 sub determine_system_db {
   my $self = shift;
@@ -614,20 +660,59 @@ sub determine_system_db {
 
   my $candidates = $self->locate_db_location_candidates;
   my @exist = grep { -e $_ } @{ $candidates };
+  my @exist = @{ $candidates };
 
   foreach my $db (@exist) {
     if( $self->probe_db_via_module_locate( $db ) ) {
+      $self->set_db( $db );
       return $db;
     }
   }
   foreach my $db (@exist) {
     if( $self->probe_db_via_shell_locate( $db ) ) {
+      # $self->set_use_shell_locate(1); ### TODO -- why not do this here
+      $self->set_db( $db );
       return $db;
     }
   }
   $self->set_system_db_not_found( 1 );
   return undef;
 }
+
+
+=item probe_db
+
+For when the locate db file you're interested in is known,
+and you want to initialize access for it (and as a side-effect,
+find out if it works).
+
+Input: db file name with full path (optional, defaults to object's setting).
+
+Return: for success, the db file name, on failure undef.
+
+Side-effect: set's use_shell_locate if the access via module
+didn't work.
+
+=cut
+
+sub probe_db {
+  my $self = shift;
+
+  my $db = shift || $self->db;
+
+  # will we use db fast way (module) or slow but sure (shell)
+  if ( $self->probe_db_via_module_locate ) {
+    # File::Locate module works, so use it
+    return $db; # success
+  } elsif ( $self->probe_db_via_shell_locate ) {
+    $self->set_use_shell_locate( 1 );
+    return $db; # success
+  } else {
+    return;     # failed
+  }
+}
+
+
 
 =item probe_db_via_module_locate
 
@@ -708,16 +793,18 @@ sub probe_db_via_shell_locate {
   my $opt_str = $self->build_opts_for_locate_via_shell;
 
   # Nested loops of trials
-  # The outer loop: a series of terms to try searching for.
-  # The inner loop: different syntax variations of the locate cmd
+  # The outer loop: different syntax variations of the locate cmd
+  # The inner loop: a series of terms to try searching for.
 
   my $test_search_terms_aref = $self->test_search_terms;
   my @test_search_terms =
     @{ $test_search_terms_aref } if $test_search_terms_aref;
 
-  foreach my $search_term (@test_search_terms) {
+  my $lim = $self->generate_locate_cmd;
+  for (my $cmd_idx = 0; $cmd_idx <= $lim; $cmd_idx++) {
 
-    for (my $cmd_idx=0; $cmd_idx<=$self->generate_locate_cmd; $cmd_idx++) {
+    foreach my $search_term (@test_search_terms) {
+
       my $locate_cmd =
         $self->generate_locate_cmd( $cmd_idx, $search_term, $db, $opt_str );
       chomp(
@@ -736,16 +823,12 @@ sub probe_db_via_shell_locate {
 
 =item generate_locate_cmd
 
-Given an ordered list of parameters, returns a from of the locate
-command which can (in theory) be fed to the shell.  In practice
-these different forms are expected to fail (some harder than
-others) on various different platforms, so some experimentation
-may be needed to find a form that works.
-
-Special case:
-
-with no arguments (actually, with $cmd_idx undefined) returns
-the count of avaliable command forms minus 1 ($#cmd_forms);
+Given an ordered list of four required parameters, returns a form
+of the locate command which can (in theory) be fed to the shell.
+In practice these different forms are expected to fail (some
+harder than others) on various different platforms, so some
+experimentation may be needed to find a form that works (which
+is the job of L</probe_db_via_shell_locate>).
 
 Inputs:
 
@@ -773,6 +856,11 @@ Example usage:
 Note: the various forms of locate are discussed below in
 L</"locate shell command">
 
+Special case:
+
+with no arguments (specifically, with $cmd_idx undefined) returns
+the count of avaliable command forms minus 1 ($#cmd_forms);
+
 =cut
 
 sub generate_locate_cmd {
@@ -790,17 +878,17 @@ sub generate_locate_cmd {
   if( $db ) {
     @shell_locate_cmds =
       (
-       "locate $opt_str -q -d '$db' $search_term",
-       "locate $opt_str -d '$db' $search_term",
-       "locate $opt_str -q --database='$db' $search_term",
-       "locate $opt_str --database='$db' $search_term",
+       "locate -q -d '$db' $opt_str $search_term",
+       "locate -d '$db' $opt_str $search_term",
+       "locate -q --database='$db' $opt_str $search_term",
+       "locate  --database='$db' $opt_str $search_term",
       );
   } else {
     @shell_locate_cmds =
       (
-       "locate $opt_str -q $search_term",
+       "locate -q $opt_str $search_term",
        "locate $opt_str $search_term",
-       "locate $opt_str -q $search_term",
+       "locate -q $opt_str $search_term",
        "locate $opt_str $search_term",
       );
   }
@@ -815,6 +903,7 @@ sub generate_locate_cmd {
   }
 
   my $cmd = $shell_locate_cmds[ $cmd_idx ];
+  $self->debug("generate_locate_cmd: returned cmd:\n$cmd\n");
   return $cmd;
 }
 
@@ -823,6 +912,9 @@ sub generate_locate_cmd {
 Converts the three object attribute toggles
 (L</"case_insensitive">, </"regexp">, </"posix_extended">)
 into the command-line options string for locate.
+
+The "posix_extended" feature is not supported for locates
+via the shell, and if used will issue a warning.
 
 =cut
 
@@ -869,6 +961,85 @@ sub build_opts_for_locate_via_module {
   return @opts;
 }
 
+=back
+
+=head2 initialization utilities
+
+=over
+
+=item define_probe_parameters
+
+An internal method, used during the object init process.
+
+Defines two arrays that are used to control the locate db "probe"
+process: the test_search_terms and the
+locate_db_location_candidates.
+
+The locate_db_location_candidates are likely places for a
+system's locate db.  See L</details> below.
+
+The test_search_terms are common terms in unix file paths,
+which we can check to see if what looks like the locate
+database really is one.  See L</"checking if a form of locate works">
+below.
+
+=cut
+
+sub define_probe_parameters {
+  my $self = shift;
+
+  # common strings in file paths on perl/unix systems,
+  # in roughly increasing likelihood of size of search result
+  my @test_search_terms =
+    qw(
+        MakeMaker
+        SelfStubber
+        DynaLoader
+        README
+        tmp
+        bin
+        the
+        htm
+        txt
+        home
+        e
+        /
+     );
+  $self->set_test_search_terms( \@test_search_terms );
+
+  # some places one might look for the system's
+  # locate db, in roughly increasing order of likelihood
+  my @candidates =
+    qw(
+        /var/lib/slocate/slocate.db
+        /var/cache/locate/locatedb
+        /var/db/locate.database
+        /usr/var/locatedb
+        /var/lib/locatedb
+        /usr/local/var/locatedb
+        /var/lib/locate/locatedb
+        /var/spool/locate/locatedb
+
+        /var/cache/locate/slocate.db
+        /var/db/slocate.db
+        /usr/var/slocate.db
+        /usr/local/var/slocate.db
+        /var/lib/locate/slocate.db
+        /var/spool/locate/slocate.db
+
+        /var/lib/slocate/locate.database
+        /var/cache/locate/locate.database
+        /usr/var/locate.database
+        /usr/local/var/locate.database
+        /var/lib/locate/locate.database
+        /var/spool/locate/locate.database
+
+        /var/lib/slocate/locatedb
+        /var/db/locatedb
+     );
+  $self->set_locate_db_location_candidates( \@candidates );
+  return $self;
+}
 
 =back
 
@@ -880,24 +1051,69 @@ sub build_opts_for_locate_via_module {
 
 Getter for object attribute system_db
 
-This is a magic getter that does initilization of the value if
-it's not defined already.
+=item set_db
+
+Setter for object attribute set_db
 
 =cut
 
-sub db {
+# TODO suspect I should do some flag waving in here.
+# maybe "system_db_not_found" should be unset if this is manually set?
+# (or maybe, that flag is getting checked somewhere where it shouldn't?)
+# Um... if you've set a new db, shouldn't probes be re-done? It might be a *bad* db...
+# But, if it's *not* a system db, it might have a small set of files... perhaps the
+# last probe should be '-r ^$'...
+# But: what if you're planning on doing a db create? Then it wouldn't exist yet...
+# Okay, like this
+sub set_db {
   my $self = shift;
-
-  my $db;
-  if( $db = $self->{ db } ) {
-    return $db;
-  } else {
-    $db = $self->determine_system_db( );
-    # note: returns undef immediately if ( $self->system_db_not_found )
-  }
-  $self->set_db( $db ) if $db;
+  my $db = shift;
+  $self->{ db } = $db;
   return $db;
 }
+
+=back
+
+=head2 EXPERIMENTAL
+
+Having some trouble straightening out the above code as-written.
+Going to work on some experimental routines here, that might
+have a use somewhere.
+
+=over
+
+=item work_via
+
+Try the db various ways, make a recommendation on how to access it.
+Return string: 'module' or 'shell'.
+
+Q: how to handle the shell-but-undef-db case?
+A1: could be a third how-type 'shell_unknown'
+A2: could be some sort of meta-field, a "system_db_indeterminate" flag
+
+=cut
+
+sub work_via {
+  my $self = shift;
+  my $db   = shift    || $self->db;
+
+  my $how;
+
+  if (     $self->probe_db_via_module_locate( $db ) ) {
+    $how = 'module';
+  } else {  ## TODO does this work?
+         if( $self->probe_db_via_shell_locate(  $db ) ) {
+           $how = 'shell';
+         } else {
+           $how = 'shell_unknown_db';
+         }
+  }
+  return $how;
+}
+
+
+
+
 
 =back
 
@@ -1052,11 +1268,12 @@ The object creation process "new" and "init" determines how to do
 system-wide locates, and saves it's conclusions for use by future
 calls of the locate method on this object.
 
-Some of this elaborate initialization process can be short-circuited
-if it's told which db file to use: that's convenient for cases where
-you want to use this module to create a locate db of your own
-(there's no point in scoping for a system-wide db if we're going to
-use a specialized one).
+Some of this elaborate initialization process can be
+short-circuited if it's told which db file to use, or even just
+giving it an "db" option with an undefined value.  That's
+convenient for cases where you want to use this module to create
+a locate db of your own (there's no point in scoping for a
+system-wide db if we're going to use a specialized one).
 
 If the db location is not known, the search process begins
 with making guesses about likely locations it might be found.
