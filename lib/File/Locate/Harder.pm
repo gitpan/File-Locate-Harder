@@ -97,7 +97,7 @@ use Hash::Util qw( lock_keys unlock_keys );
 # Note: this is now 'require'ed during init instead
 #   use File::Locate ();
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 # for autoload generated accessors
 our $AUTOLOAD;
@@ -660,7 +660,6 @@ sub determine_system_db {
 
   my $candidates = $self->locate_db_location_candidates;
   my @exist = grep { -e $_ } @{ $candidates };
-  my @exist = @{ $candidates };
 
   foreach my $db (@exist) {
     if( $self->probe_db_via_module_locate( $db ) ) {
