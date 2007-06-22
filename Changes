@@ -16,3 +16,7 @@ Revision history for Perl extension File::Locate::Harder.
 
 0.04  Sunday June 10, 2007  12:19 AM
         - fixed bug (potential efficiency hit) in determine_system_db
+
+
+0.05  Friday June 22, 2007  12:32 AM
+        - bug fix: create_database now creates directory if needed

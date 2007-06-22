@@ -93,11 +93,12 @@ use warnings;
 use Carp;
 use Data::Dumper;
 use Hash::Util qw( lock_keys unlock_keys );
+use File::Path     qw(mkpath);
+use File::Basename qw(fileparse basename dirname);
 
-# Note: this is now 'require'ed during init instead
-#   use File::Locate ();
+# Note: File::Locate is now "require"ed during init instead of "use"ed.
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 # for autoload generated accessors
 our $AUTOLOAD;
@@ -312,8 +313,8 @@ An array reference of matching files with full paths.
 =cut
 
 sub locate {
-  my $self = shift;
-  my $search_term = shift;
+  my $self           = shift;
+  my $search_term    = shift;
   my $locate_options = shift;
 
   # apply the current locate options but preserve object settings
@@ -365,10 +366,11 @@ false (undef) on failure.
 =cut
 
 sub create_database {
-  my $self = shift;
+  my $self     = shift;
   my $location = shift;
+  my $db       = shift;
 
-  my $db  = shift;
+  mkpath( dirname( $db ));
 
   my @cmd = ( "slocate -U $location -o $db",
               "updatedb --output=$db --localpaths='$location'",
@@ -1054,20 +1056,17 @@ Getter for object attribute system_db
 
 Setter for object attribute set_db
 
+As a side-effect, unsets the shell_locate_failed flag
+(what if the last db file was bad, and this current
+setting will work?).
+
 =cut
 
-# TODO suspect I should do some flag waving in here.
-# maybe "system_db_not_found" should be unset if this is manually set?
-# (or maybe, that flag is getting checked somewhere where it shouldn't?)
-# Um... if you've set a new db, shouldn't probes be re-done? It might be a *bad* db...
-# But, if it's *not* a system db, it might have a small set of files... perhaps the
-# last probe should be '-r ^$'...
-# But: what if you're planning on doing a db create? Then it wouldn't exist yet...
-# Okay, like this
 sub set_db {
   my $self = shift;
   my $db = shift;
   $self->{ db } = $db;
+  $self->set_shell_locate_failed( undef );
   return $db;
 }
 
@@ -1100,7 +1099,7 @@ sub work_via {
 
   if (     $self->probe_db_via_module_locate( $db ) ) {
     $how = 'module';
-  } else {  ## TODO does this work?
+  } else {
          if( $self->probe_db_via_shell_locate(  $db ) ) {
            $how = 'shell';
          } else {
@@ -1433,15 +1432,25 @@ via L<introspection_results>) no doubt seem redundant:
  shell_locate_failed
  shell_locate_cmd_idx
 
-It's likely that they *are* somewhat redundant: they were
+It's possible that they *are* somewhat redundant: they were
 invented on-the-fly during development on an ad hoc basis.
 
-However, despite the way it looks, this set is resistant to
-being reduced in size.  I believe this is because two-valued
-logic has it's limitations: For our immediate purpose, there
-has to be ways to distinguish between "I don't know what this
-value is, and you should try to find out" and "I don't know
-what this value is, and it isn't worth trying to find it."
+However, despite the way it looks, this set is resistant to being
+reduced in size.  Two-valued logic has it's limitations: for our
+immediate purpose, there has to be ways to distinguish between "I
+don't know what this value is, and you should try to find out"
+and "I don't know what this value is, and it isn't worth trying
+to find it."  For example, the "db" field alone isn't good
+enough, it needs to be supplemented with information about what
+we've done to try to determine the "db".
+
+As for "use_shell_locate" and "shell_locate_failed":
+"shell_locate_failed" is used largely to skip doing a probe via
+shell if it's failed before (possibly it's name should be
+expanded to "shell_locate_probe_failed").  Even if the system has
+been explicitly told to work via the shell, it's still necessary
+to do a probe to find out which form of the shell locate command
+will work ("shell_locate_cmd_idx").
 
 =head1 AUTHOR
 
