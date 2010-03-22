@@ -3,7 +3,7 @@
 
 #########################
 
-my $DEBUG = 0; # TODO zero before shipping
+my $DEBUG = 1; # TODO zero before shipping
 use Test::More;
 my $total_count;
 BEGIN { $total_count = 30;

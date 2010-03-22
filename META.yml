@@ -1,10 +1,13 @@
-# http://module-build.sourceforge.net/META-spec.html
-#XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
-name:         File-Locate-Harder
-version:      0.05
-version_from: lib/File/Locate/Harder.pm
-installdirs:  site
-requires:
+--- #YAML:1.0
+name:                File-Locate-Harder
+version:             0.06
+abstract:            when you're determined to use a locate db
+license:             ~
+author:              
+    - Joseph Brenner <doom@>
+generated_by:        ExtUtils::MakeMaker version 6.42
+distribution_type:   module
+requires:     
     Carp:                          0
     Class::Base:                   0.03
     Data::Dumper:                  0
@@ -13,6 +16,6 @@ requires:
     Hash::Util:                    0
     Symbol:                        0
     Test::Trap:                    v0.0.22
-
-distribution_type: module
-generated_by: ExtUtils::MakeMaker version 6.17
+meta-spec:
+    url:     http://module-build.sourceforge.net/META-spec-v1.3.html
+    version: 1.3

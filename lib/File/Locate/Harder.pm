@@ -98,7 +98,7 @@ use File::Basename qw(fileparse basename dirname);
 
 # Note: File::Locate is now "require"ed during init instead of "use"ed.
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 # for autoload generated accessors
 our $AUTOLOAD;
@@ -249,7 +249,7 @@ sub init {
      # that is, the test_search_terms and locate_db_location_candidates
 
   # Try to load module "File::Locate", if it fails we'll try shell locate
-  eval "require File::Locate;";
+  eval { require File::Locate };
   if ($@) {
     $self->set_use_shell_locate( 1 );
   }
@@ -373,6 +373,7 @@ sub create_database {
   mkpath( dirname( $db ));
 
   my @cmd = ( "slocate -U $location -o $db",
+              "updatedb --require-visibility 0 --output=$db --database-root='$location'",
               "updatedb --output=$db --localpaths='$location'",
             );
 
@@ -657,7 +658,7 @@ object attribute "db".
 sub determine_system_db {
   my $self = shift;
   if ( $self->system_db_not_found ) {
-    return undef;  # might as well bail if we've failed before
+    return;  # might as well bail if we've failed before
   }
 
   my $candidates = $self->locate_db_location_candidates;
@@ -677,7 +678,7 @@ sub determine_system_db {
     }
   }
   $self->set_system_db_not_found( 1 );
-  return undef;
+  return;
 }
 
 
@@ -728,7 +729,7 @@ sub probe_db_via_module_locate {
 
   # bail immediately if we've already know via_module doesn't work
   if ( $self->use_shell_locate ) {
-    return undef;
+    return;
   }
 
   my @test_search_terms =
@@ -742,7 +743,7 @@ sub probe_db_via_module_locate {
     };
     if ($@) { # traps errors reported by the File::Locate module
       $self->debug("File::Locate::locate had a problem with $db:\n$@");
-      return undef;
+      return;
     }
     if ( $found_one ) {
       return $db;
@@ -750,7 +751,7 @@ sub probe_db_via_module_locate {
        $self->debug("File::Locate::locate found no $search_term via $db:\n$?");
     }
   }
-  return undef;
+  return;
 }
 
 =item probe_db_via_shell_locate
@@ -779,7 +780,7 @@ sub probe_db_via_shell_locate {
   my $self = shift;
 
   if ( $self->shell_locate_failed ) {
-    return undef;  # bail now if we've failed before
+    return;  # bail now if we've failed before
   }
 
   my $default_db;
@@ -798,7 +799,8 @@ sub probe_db_via_shell_locate {
   # The inner loop: a series of terms to try searching for.
 
   my $test_search_terms_aref = $self->test_search_terms;
-  my @test_search_terms =
+  my @test_search_terms;
+  @test_search_terms =
     @{ $test_search_terms_aref } if $test_search_terms_aref;
 
   my $lim = $self->generate_locate_cmd;
@@ -819,7 +821,7 @@ sub probe_db_via_shell_locate {
     }
   }
   $self->set_shell_locate_failed( 1 );
-  return undef;
+  return;
 }
 
 =item generate_locate_cmd
@@ -1313,7 +1315,7 @@ L</"checking if a form of locate works"> below.)
 =head2 locate shell command
 
 If attempts at using L<File::Locate> fails, the system falls back
-to shelling out to the locate command (it really should already
+to shelling out to the locate command (which really should already
 know how to find the system-wide db, either from a compiled-in
 default or a config file setting).
 
@@ -1410,8 +1412,8 @@ Note: it isn't abundantly clear from the documentation if
 the case.  (And there is a syntax diagram that indicates this).
 
 Another oddity, though: there doesn't seem to be a way to do a
-case-insensitive search without using regexps.  (Oddly enough,
-none of the tests use the "-rexopt" feature.)
+case-insensitive search without using regexps.
+(Note: none of the tests use the "-rexopt" feature.)
 
 A very cool touch is that you can hand it a coderef, and avoid
 building up a big result set:
@@ -1420,6 +1422,38 @@ building up a big result set:
 
 Note: the order of arguments to File::Locate::locate is supposed
 to be irrelevant.
+
+=head2 creating a database
+
+Creating your own private locate database isn't done very often,
+but this module tries to support it largely for purposes of writing
+portable tests (we can't know what files are installed on a remote system,
+so it's difficult to know what a locate operation should have found...
+*unless* we generate a small locate database of our own that tracks
+a known set of files that we ship with the tests).
+
+Unfortunately there are several different invocation forms for doing this,
+depending on the variant of locate you have installed.  As usual,
+we try everything we can think of, and only give up if none of them work.
+
+  my @cmd = ( "slocate -U $location -o $db",
+              "updatedb --require-visibility 0 --output=$db --database-root='$location'",
+              "updatedb --output=$db --localpaths='$location'",
+            );
+
+It probably comes as no surprise that "slocate" and "updatedb" have
+different forms.  I was, uh, *interested* to see that my updatedb
+works differently now (2010) than when I wrote this code in 2007.
+
+The man page for the version of updatedb installed on my Ubuntu "jaunty"
+box has a version of "update" db written by: "Miloslav Trmac <mitr@redhat.com>"
+where the option I need is called "--database-root", I see that the
+old option name I was using, "--localpaths", was used by a version
+written by "Glenn Fowler <gsf@research.att.com>".
+
+Also, with the RedHat version-- which looks as though it thinks
+of itself as "mlocate"-- the "-require-visibility 0" option is
+recommended for the creation of a small, private locate db.
 
 =head2 system status fields
 
@@ -1459,7 +1493,7 @@ Joseph Brenner, E<lt>doom@kzsu.stanford.eduE<gt>,
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2007 by Joseph Brenner
+Copyright (C) 2007, 2010 by Joseph Brenner
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.2 or,
